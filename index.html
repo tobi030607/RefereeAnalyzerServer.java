@@ -1,0 +1,144 @@
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpExchange;
+
+import java.io.*;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.util.*;
+
+public class RefereeAnalyzerServer {
+
+    static List<Decision> decisions = new ArrayList<>();
+
+    public static void main(String[] args) throws Exception {
+
+        loadDecisions();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress(8080),0);
+
+        server.createContext("/", new HomeHandler());
+        server.createContext("/analyze", new AnalyzeHandler());
+
+        server.setExecutor(null);
+        System.out.println("Referee Analyzer Server running on http://localhost:8080");
+        server.start();
+    }
+
+    static void loadDecisions() {
+        decisions.add(new Decision("Foul im Strafraum", "Elfmeter geben"));
+        decisions.add(new Decision("Abseits Tor", "Tor zurücknehmen"));
+        decisions.add(new Decision("Handspiel", "Freistoß"));
+        decisions.add(new Decision("Notbremse", "Rot Karte"));
+        decisions.add(new Decision("Fehlalarm", "Spiel weiterlaufen lassen"));
+    }
+
+    static class Decision {
+        String situation;
+        String correctAction;
+
+        public Decision(String situation, String correctAction){
+            this.situation = situation;
+            this.correctAction = correctAction;
+        }
+    }
+
+    static class HomeHandler implements HttpHandler {
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String page = """
+                <html>
+                <head>
+                    <title>Schiedsrichter Analyse</title>
+                    <style>
+                        body { font-family: Arial; background: #1e1e1e; color: white; text-align: center; }
+                        input, select, button { padding: 10px; margin: 10px; font-size: 16px; }
+                        .card { background:#333; padding:20px; margin:20px; border-radius:10px; display:inline-block; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Schiedsrichter Fehlentscheidungen Analyse</h1>
+                    <div class="card">
+                        <form action="/analyze" method="POST">
+                            <label>Situation:</label><br>
+                            <select name="situation">
+                                <option>Foul im Strafraum</option>
+                                <option>Abseits Tor</option>
+                                <option>Handspiel</option>
+                                <option>Notbremse</option>
+                                <option>Fehlalarm</option>
+                            </select><br>
+                            <button>Analyse</button>
+                        </form>
+                    </div>
+                </body>
+                </html>
+            """;
+
+            send(exchange, page);
+        }
+    }
+
+    static class AnalyzeHandler implements HttpHandler {
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String body = new String(exchange.getRequestBody().readAllBytes());
+            Map<String,String> params = parseQuery(body);
+            String situation = params.getOrDefault("situation","Unbekannt");
+
+            String result = analyzeDecision(situation);
+
+            String page = """
+                <html>
+                <head>
+                    <title>Analyse Ergebnis</title>
+                    <style>
+                        body { font-family: Arial; background:#1e1e1e; color:white; text-align:center; }
+                        .card { background:#333; padding:20px; margin:20px; border-radius:10px; display:inline-block; }
+                        a { color: #4ea1f3; text-decoration:none; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Analyse Ergebnis</h1>
+                    <div class="card">
+                        <p><b>Situation:</b> """ + situation + "</p>" +
+                        "<p><b>Empfohlene Entscheidung:</b> " + result + "</p>" +
+                        "<br><a href='/'>Zurück</a>" +
+                    "</div>" +
+                "</body></html>";
+
+            send(exchange,page);
+        }
+    }
+
+    static String analyzeDecision(String situation){
+        for(Decision d : decisions){
+            if(d.situation.equalsIgnoreCase(situation)){
+                return d.correctAction;
+            }
+        }
+        return "Keine Empfehlung verfügbar";
+    }
+
+    static void send(HttpExchange exchange,String response) throws IOException {
+        exchange.sendResponseHeaders(200,response.getBytes().length);
+        OutputStream os = exchange.getResponseBody();
+        os.write(response.getBytes());
+        os.close();
+    }
+
+    static Map<String,String> parseQuery(String query){
+        Map<String,String> map = new HashMap<>();
+        if(query==null) return map;
+        String[] pairs = query.split("&");
+        for(String p:pairs){
+            String[] keyValue = p.split("=");
+            if(keyValue.length==2){
+                map.put(keyValue[0],keyValue[1].replace("+"," "));
+            }
+        }
+        return map;
+    }
+}
